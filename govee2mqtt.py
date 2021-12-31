@@ -8,12 +8,21 @@ import uuid
 from gi.repository import GLib
 import paho.mqtt.client as mqtt
 from pydbus import SystemBus
+import toml
 
 DEVICE_INTERFACE = 'org.bluez.Device1'
 
 broker_address="10.2.1.30" 
 client = mqtt.Client("ha-pi")
 client.connect(broker_address)
+
+def read_config():
+    with open("govee2mqtt.conf", "r") as fh:
+        config = toml.load(fh)
+
+    return config
+
+CONFIG = read_config()
 
 def stop_scan():
     """Stop device discovery and quit event loop"""
@@ -103,16 +112,15 @@ def on_device_found(device_path, device_props):
     service_data = device_props.get('ServiceData')
     manufacturer_data = device_props.get('ManufacturerData')
     if manufacturer_data:
-        if 60552 in manufacturer_data.keys() and address.casefold() == 'e3:37:3c:61:b4:0f':
-            temp, hum, batt = process_H5074(manufacturer_data)
-            write_to_csv("H5074", now, temp, hum, batt)
-            client.publish("home/outside/h5074/temperature", temp / 100)
-            client.publish("home/outside/h5074/humidity", hum / 100)
-        elif 60552 in manufacturer_data.keys() and address.casefold() == 'a4:c1:38:e5:2f:38':
-            temp, hum, batt = process_H5075(manufacturer_data)
-            write_to_csv("H5075", now, temp, hum, batt)
-            client.publish("home/inside/h5075/temperature", temp)
-            client.publish("home/inside/h5075/humidity", hum)
+        if 60552 in manufacturer_data.keys() and address.casefold() in CONFIG["devices"].keys():
+            device_config = CONFIG["devices"][address.casefold()]
+            if device_config["device_type"] == "H5074":
+                temp, hum, batt = process_H5074(manufacturer_data)
+            elif device_config["device_type"] == "H5075":
+                temp, hum, batt = process_H5075(manufacturer_data)
+            write_to_csv(device_config["device_id"], now, temp, hum, batt)
+            client.publish(f"{CONFIG['mqtt']['queue']}{device_config['device_id']}/temperature", temp)
+            client.publish(f"{CONFIG['mqtt']['queue']}{device_config['device_id']}/humidity", hum)
 
     remove_list.add(device_path)
     clean_beacons(remove_list)
