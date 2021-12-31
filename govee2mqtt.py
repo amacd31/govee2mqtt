@@ -58,6 +58,32 @@ def decode_temps(packet_value: int) -> float:
 def hex_string(data):
         return "".join("{:02x} ".format(x) for x in data)
 
+def process_H5074(manufacturer_data):
+    data = manufacturer_data[60552]
+    temp, hum, batt = struct.unpack_from("<HHB", bytes(data)[1:])
+    temp = temp / 100
+    hum = hum / 100
+
+    return temp, hum, batt
+
+
+def process_H5075(manufacturer_data):
+    data = manufacturer_data[60552]
+    data = hex_string(data[1:4]).replace(" ", "")
+    temp_hum = int(data, 16)
+    temp = decode_temps(temp_hum)
+    hum = temp_hum % 1000 / 10
+    batt = int(manufacturer_data[60552][4])
+
+    return temp, hum, batt
+
+
+def write_to_csv(device_id, now, temp, hum, batt):
+    data = ",".join([device_id, now.isoformat(), str(temp), str(hum), str(batt)])
+    print(data)
+    with open(f"temperatures-{now.date().isoformat()}.csv", "a") as fh:
+        fh.write(data + "\n")
+
 
 def on_device_found(device_path, device_props):
     """
@@ -78,25 +104,13 @@ def on_device_found(device_path, device_props):
     manufacturer_data = device_props.get('ManufacturerData')
     if manufacturer_data:
         if 60552 in manufacturer_data.keys() and address.casefold() == 'e3:37:3c:61:b4:0f':
-            data = manufacturer_data[60552]
-            temp, hum, batt = struct.unpack_from("<HHB", bytes(data)[1:])
-            data = ",".join(["H5074", now.isoformat(), str(temp / 100), str(hum / 100), str(batt)])
-            print(data)
-            with open(f"/home/pi/temperatures-{now.date().isoformat()}.csv", "a") as fh:
-                fh.write(data + "\n")
+            temp, hum, batt = process_H5074(manufacturer_data)
+            write_to_csv("H5074", now, temp, hum, batt)
             client.publish("home/outside/h5074/temperature", temp / 100)
             client.publish("home/outside/h5074/humidity", hum / 100)
         elif 60552 in manufacturer_data.keys() and address.casefold() == 'a4:c1:38:e5:2f:38':
-            data = manufacturer_data[60552]
-            data = hex_string(data[1:4]).replace(" ", "")
-            temp_hum = int(data, 16)
-            temp = decode_temps(temp_hum)
-            hum = temp_hum % 1000 / 10
-            batt = int(manufacturer_data[60552][4])
-            data = ",".join(["H5075", now.isoformat(), str(temp), str(hum), str(batt)])
-            print(data)
-            with open(f"/home/pi/temperatures-{now.date().isoformat()}.csv", "a") as fh:
-                fh.write(data + "\n")
+            temp, hum, batt = process_H5075(manufacturer_data)
+            write_to_csv("H5075", now, temp, hum, batt)
             client.publish("home/inside/h5075/temperature", temp)
             client.publish("home/inside/h5075/humidity", hum)
 
